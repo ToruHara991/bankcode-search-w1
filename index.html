@@ -1,0 +1,324 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>金融機構代碼查詢系統</title>
+    <script src="bankcode.js"></script>
+    <style>
+        body {
+            font-family: "Microsoft JhengHei", "Heiti TC", sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        /* 搜尋區塊樣式 - 預設顯示 */
+        .search-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            flex: 1;
+            min-width: 200px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 5px rgba(74, 144, 226, 0.3);
+        }
+
+        #result-count {
+            width: 100%;
+            max-width: 800px;
+            text-align: right;
+            color: #666;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+
+        .results-table {
+            width: 100%;
+            max-width: 800px;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .results-table thead {
+            background-color: #4a90e2;
+            color: white;
+        }
+
+        .results-table th, .results-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .results-table tr:hover {
+            background-color: #f1f7ff;
+        }
+
+        .code-cell {
+            font-family: monospace;
+            font-weight: bold;
+            color: #d32f2f;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .code-cell:hover::after {
+            content: "複製";
+            font-size: 12px;
+            color: white;
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 10px;
+            position: absolute;
+            right: 10px;
+        }
+
+        /* Toast 通知 */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 1;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            font-size: 17px;
+        }
+
+        #toast.show {
+            visibility: visible;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+
+        @keyframes fadein {
+            from {bottom: 0; opacity: 0;}
+            to {bottom: 30px; opacity: 1;}
+        }
+
+        @keyframes fadeout {
+            from {bottom: 30px; opacity: 1;}
+            to {bottom: 0; opacity: 0;}
+        }
+    </style>
+</head>
+<body>
+
+    <h1>金融機構代碼查詢系統</h1>
+<p>
+    資料庫來源: 本區處的
+    <span style="color: green; font-weight: bold;">會計系統</span>
+    (AC權限，出納用)，可查出
+    <span style="color: blue; font-weight: bold;">金融機構代碼</span>，
+    但留意
+    <span style="color: red; font-weight: bold;">中文名稱</span>
+    可能與網路上有異
+</p>
+    <div class="search-container" id="searchArea">
+        <div class="input-group">
+            <label for="keyword1">關鍵字1：行庫 (如：臺灣銀行)</label>
+            <input type="text" id="keyword1" placeholder="輸入行庫名稱...">
+        </div>
+        <div class="input-group">
+            <label for="keyword2">關鍵字2：地區/分行 (如：台南)</label>
+            <input type="text" id="keyword2" placeholder="輸入地區或分行...">
+        </div>
+    </div>
+
+    <div id="result-count">資料載入中...</div>
+
+    <table class="results-table" id="resultTable">
+        <thead>
+            <tr>
+                <th width="70%">金融機構名稱</th>
+                <th width="30%">金融機構代碼 (點擊複製)</th>
+            </tr>
+        </thead>
+        <tbody id="results-body">
+        </tbody>
+    </table>
+
+    <div id="toast">已複製代碼！</div>
+
+    <script>
+        let bankData = []; // 存放整理後的資料
+
+        const resultCount = document.getElementById('result-count');
+        const resultsBody = document.getElementById('results-body');
+        const k1Input = document.getElementById('keyword1');
+        const k2Input = document.getElementById('keyword2');
+
+        // 初始化：網頁載入後立即執行
+        window.addEventListener('DOMContentLoaded', function() {
+            loadDataFromJS();
+        });
+
+        // 從 bankcode.js 載入資料
+        function loadDataFromJS() {
+            // 檢查 bankcode.js 是否有正確載入 (檢查變數 bankCodes 是否存在)
+            if (typeof bankCodes === 'undefined' || !Array.isArray(bankCodes)) {
+                alert("錯誤：無法讀取 'bankCodes' 資料。\n請確認 'bankcode.js' 是否存在於同目錄下，且內容格式正確。");
+                resultCount.innerText = '資料載入失敗';
+                resultsBody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:red;">無法讀取 bankcode.js</td></tr>';
+                return;
+            }
+
+            // 轉換資料格式以符合搜尋邏輯
+            // bankcode.js 格式: {"NO.":"1.", "金融機構代碼":"...", "金融機構名稱":"..."}
+            try {
+                bankData = bankCodes.map(item => ({
+                    name: item['金融機構名稱'] ? item['金融機構名稱'].trim() : '',
+                    code: item['金融機構代碼'] ? item['金融機構代碼'].trim() : ''
+                })).filter(item => item.name && item.code); // 過濾掉空資料
+
+                // 載入完成，顯示提示
+                resultCount.innerText = `資料庫共有 ${bankData.length} 筆資料`;
+                resultsBody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#666;">資料已準備就緒，請輸入關鍵字開始查詢。</td></tr>';
+            } catch (e) {
+                console.error(e);
+                alert("資料解析發生錯誤，請檢查 bankcode.js 內容格式。");
+            }
+        }
+
+        // 搜尋功能
+        function filterData() {
+            const v1 = k1Input.value.trim().toLowerCase();
+            const v2 = k2Input.value.trim().toLowerCase();
+
+            if (v1 === '' && v2 === '') {
+                resultsBody.innerHTML = '<tr><td colspan="2" style="text-align:center; color:#999;">請輸入關鍵字開始查詢...</td></tr>';
+                resultCount.innerText = `資料庫共有 ${bankData.length} 筆資料`;
+                return;
+            }
+
+            const filtered = bankData.filter(item => {
+                const name = item.name.toLowerCase();
+                // 檢查是否同時包含兩個關鍵字
+                const match1 = v1 === '' || name.includes(v1);
+                const match2 = v2 === '' || name.includes(v2);
+                return match1 && match2;
+            });
+
+            displayResults(filtered);
+        }
+
+        // 顯示結果
+        function displayResults(data) {
+            resultsBody.innerHTML = '';
+            
+            if (data.length === 0) {
+                resultsBody.innerHTML = '<tr><td colspan="2" style="text-align:center;">查無資料</td></tr>';
+                resultCount.innerText = '查無資料';
+                return;
+            }
+
+            resultCount.innerText = `搜尋到 ${data.length} 筆資料`;
+
+            // 為了效能，若結果超過 100 筆，只顯示前 100 筆
+            const displayLimit = 100;
+            const dataToShow = data.slice(0, displayLimit);
+
+            dataToShow.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                const tdName = document.createElement('td');
+                tdName.textContent = item.name;
+                
+                const tdCode = document.createElement('td');
+                tdCode.textContent = item.code;
+                tdCode.className = 'code-cell';
+                tdCode.title = '點擊複製代碼';
+                tdCode.onclick = () => copyToClipboard(item.code);
+
+                tr.appendChild(tdName);
+                tr.appendChild(tdCode);
+                resultsBody.appendChild(tr);
+            });
+
+            if (data.length > displayLimit) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="2" style="text-align:center; color:#888;">...尚有 ${data.length - displayLimit} 筆資料，請輸入更精確的關鍵字...</td>`;
+                resultsBody.appendChild(tr);
+            }
+        }
+
+        // 複製到剪貼簿
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast(`已複製代碼：${text}`);
+            }).catch(err => {
+                console.error('複製失敗', err);
+                // 備用方案 (舊瀏覽器)
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showToast(`已複製代碼：${text}`);
+            });
+        }
+
+        // Toast 提示
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+
+        // 綁定輸入框事件
+        k1Input.addEventListener('input', filterData);
+        k2Input.addEventListener('input', filterData);
+
+    </script>
+</body>
+</html>
